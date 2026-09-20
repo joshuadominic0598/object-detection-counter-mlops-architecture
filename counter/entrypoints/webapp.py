@@ -2,44 +2,12 @@ from io import BytesIO
 import time
 import uuid
 
-from flask import Flask, request, jsonify, abort
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from counter import config
 from counter.monitoring.request_monitor import RequestMonitor
-
-
-# Request parsing
-
-def get_request_data():
-    request_id = str(uuid.uuid4())
-    start_time = time.time()
-
-    session_id = request.form.get("session_id")
-    if not session_id:
-        abort(400, description="session_id is required")
-
-    threshold_raw = request.form.get("threshold", 0.5)
-    try:
-        threshold = float(threshold_raw)
-    except (ValueError, TypeError):
-        abort(400, description="threshold must be a valid float")
-
-    # counter=true counts objects and persists totals, counter=false only lists predictions
-    counter_raw = request.form.get("counter", "false")
-    counter_flag = parse_bool(counter_raw)
-
-    uploaded_file = request.files.get("file")
-    if uploaded_file is None:
-        abort(400, description="file is required")
-    if not uploaded_file.filename:
-        abort(400, description="file must have a filename")
-
-    image_name = uploaded_file.filename
-    image = BytesIO()
-    uploaded_file.save(image)
-    image.seek(0)
-
-    return request_id, session_id, start_time, threshold, counter_flag, image_name, image
 
 
 def parse_bool(value):
@@ -50,31 +18,44 @@ def parse_bool(value):
     if normalized == "false":
         return False
 
-    abort(400, description="counter must be 'true' or 'false'")
+    raise HTTPException(status_code=400, detail="counter must be 'true' or 'false'")
 
 
 # Application setup
 
 def create_app():
-    app = Flask(__name__)
+    app = FastAPI()
 
     count_action = config.get_count_action()
     object_list_action = config.get_object_list_action()
     monitor = RequestMonitor(config.get_monitor())
 
+    # FastAPI/Pydantic reports missing/malformed form fields as 422 by
+    # default - map that back to 400 to keep the existing API contract.
+    @app.exception_handler(RequestValidationError)
+    async def _on_validation_error(request, exc):
+        return JSONResponse(status_code=400, content={"detail": exc.errors()})
+
     # Routes
 
-    @app.route("/object-detection", methods=["POST"])
-    def object_detection():
-        (
-            request_id,
-            session_id,
-            start_time,
-            threshold,
-            counter_flag,
-            image_name,
-            image,
-        ) = get_request_data()
+    @app.post("/object-detection")
+    async def object_detection(
+        session_id: str = Form(...),
+        threshold: float = Form(0.5),
+        counter: str = Form("false"),
+        file: UploadFile = File(...),
+    ):
+        request_id = str(uuid.uuid4())
+        start_time = time.time()
+
+        # counter=true counts objects and persists totals, counter=false only lists predictions
+        counter_flag = parse_bool(counter)
+
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="file must have a filename")
+
+        image_name = file.filename
+        image = BytesIO(await file.read())
 
         try:
             if counter_flag:
@@ -101,7 +82,7 @@ def create_app():
                 persisted_counts=persisted_counts,
             )
 
-            return jsonify(response_body)
+            return response_body
 
         except Exception as ex:
             monitor.log_failure(
@@ -120,5 +101,6 @@ def create_app():
 
 
 if __name__ == "__main__":
-    app = create_app()
-    app.run("0.0.0.0", debug=True)
+    import uvicorn
+
+    uvicorn.run(create_app(), host="0.0.0.0", port=5000)

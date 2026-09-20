@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from model_management.config import DEFAULT_USE_CASE
+from model_management.model_registry.drive import get_storage
 
 REGISTRY_PATH = Path(__file__).resolve().parent / "registry.json"
 MODEL_DIR = Path("tmp/models")
@@ -317,7 +318,8 @@ def reset_test_dataset():
 
 
 def ensure_downloaded(name):
-    """Download the model's weights from Google Drive if not already present."""
+    """Download the model's weights via the registry's WeightsStorage backend
+    (see model_registry/ports.py) if not already present."""
 
     name = normalize_model_name(name)
     entry = get_model(name)
@@ -330,14 +332,7 @@ def ensure_downloaded(name):
 
     print(f"Downloading model '{name}' ({entry['file']})...")
 
-    subprocess.run(
-        [sys.executable, "-m", "gdown", entry["drive_file_id"], "-O", str(destination)],
-        check=True,
-    )
-
-    if not destination.exists() or destination.stat().st_size == 0:
-        destination.unlink(missing_ok=True)
-        raise RuntimeError(f"Download failed for model '{name}': downloaded file is empty.")
+    get_storage().download(entry["drive_file_id"], destination)
 
     verify = subprocess.run(
         [sys.executable, "-c", f"from ultralytics import YOLO; YOLO('{destination}')"],

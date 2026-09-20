@@ -1,6 +1,7 @@
 import io
-import json
 from pathlib import Path
+
+from fastapi.testclient import TestClient
 
 from counter.entrypoints.webapp import create_app
 
@@ -9,25 +10,19 @@ class TestObjectDetectionE2E:
 
     def setup_method(self):
         self.app = create_app()
-        self.app.config["TESTING"] = True
         self.image_path = Path(__file__).parent.parent.parent / "resources" / "images" / "carlot.jpeg"
 
     def test_object_detection_counter_mode(self):
-        with self.app.test_client() as client, open(self.image_path, "rb") as f:
+        with TestClient(self.app) as client, open(self.image_path, "rb") as f:
             response = client.post(
                 "/object-detection",
-                data={
-                    "threshold": "0.5",
-                    "session_id": "test-session",
-                    "counter": "true",
-                    "file": (io.BytesIO(f.read()), "carlot.jpeg"),
-                },
-                content_type="multipart/form-data",
+                data={"threshold": "0.5", "session_id": "test-session", "counter": "true"},
+                files={"file": ("carlot.jpeg", io.BytesIO(f.read()), "image/jpeg")},
             )
 
         assert response.status_code == 200
 
-        body = json.loads(response.data)
+        body = response.json()
         assert isinstance(body, dict)
         assert "current_objects" in body
         assert "total_objects" in body
@@ -35,21 +30,16 @@ class TestObjectDetectionE2E:
         assert isinstance(body["total_objects"], list)
 
     def test_object_detection_list_mode(self):
-        with self.app.test_client() as client, open(self.image_path, "rb") as f:
+        with TestClient(self.app) as client, open(self.image_path, "rb") as f:
             response = client.post(
                 "/object-detection",
-                data={
-                    "threshold": "0.5",
-                    "session_id": "test-session",
-                    "counter": "false",
-                    "file": (io.BytesIO(f.read()), "carlot.jpeg"),
-                },
-                content_type="multipart/form-data",
+                data={"threshold": "0.5", "session_id": "test-session", "counter": "false"},
+                files={"file": ("carlot.jpeg", io.BytesIO(f.read()), "image/jpeg")},
             )
 
         assert response.status_code == 200
 
-        predictions = json.loads(response.data)
+        predictions = response.json()
         assert isinstance(predictions, list)
 
         for prediction in predictions:

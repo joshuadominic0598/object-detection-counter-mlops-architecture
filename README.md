@@ -3,7 +3,7 @@
 **A production-oriented object detection and counting API that detects objects with bounding boxes, filters predictions by configurable confidence thresholds, and optionally tracks cumulative counts. Built with Hexagonal Architecture, keeping the core detection and counting logic independent from frameworks infrastructure, and external services - Allows for safe swaps.**
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
-[![Flask](https://img.shields.io/badge/Flask-3.1-000000.svg?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Ultralytics](https://img.shields.io/badge/YOLO-Ultralytics-00FFDE.svg?logo=yolo&logoColor=white)](https://www.ultralytics.com/)
 [![MongoDB](https://img.shields.io/badge/MongoDB-Database-47A248.svg?logo=mongodb&logoColor=white)](https://www.mongodb.com/)
 [![Docker](https://img.shields.io/badge/Docker-Container-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
@@ -20,7 +20,7 @@
 
 **Hexagonal Architecture Benefits**
 
-* 🔌 **Replaceable** — swap YOLO, MongoDB, or Flask independently, the domain doesn't notice
+* 🔌 **Replaceable** — swap YOLO, MongoDB, or FastAPI independently, the domain doesn't notice
 * 🧪 **Testable** — domain logic is tested with plain mocks, no model or database required
 * 🧼 **Focused** — business rules (filter by confidence, count by class) live in one place, not scattered across the model or DB code
 
@@ -98,10 +98,10 @@ This is the application — everything else in the repo supports it. It's four p
 |---|---|
 | 🧠 **`domain/`** | The business logic — filtering by confidence, counting by class. Never imports from `adapters/` or `entrypoints/` |
 | 🔌 **`adapters/`** | Swappable implementations the domain talks to — YOLO detector, MongoDB, request monitoring |
-| 🌐 **`entrypoints/`** | How the outside world reaches it — the Flask API, a CLI runner |
+| 🌐 **`entrypoints/`** | How the outside world reaches it — the FastAPI app, a CLI runner |
 | ⚙️ **`config.py`** | Wires the domain to the real adapters used by the app |
 
-The rule that makes this work: **`domain/` never imports from `adapters/` or `entrypoints/`.** Dependencies only point inward, so swapping YOLO, MongoDB, or Flask never touches the business logic.
+The rule that makes this work: **`domain/` never imports from `adapters/` or `entrypoints/`.** Dependencies only point inward, so swapping YOLO, MongoDB, or FastAPI never touches the business logic.
 
 <details>
 <summary>Full folder layout (for contributors)</summary>
@@ -120,7 +120,7 @@ counter/
 │   └── monitoring/      MongoDB-backed request logging
 │
 ├── entrypoints/     how the outside world reaches the domain
-│   ├── webapp.py        Flask API
+│   ├── webapp.py        FastAPI app
 │   └── main.py          CLI runner
 │
 ├── monitoring/      request-level logging orchestration
@@ -164,7 +164,8 @@ model_management/
 ├── model_registry/
 │   ├── registry.json   every trained model — name, use case, weights source, active flag, cached performance history keyed to the golden dataset version
 │   ├── registry.py      add / list / download / promote models
-│   └── drive.py         uploads & downloads weights + training run artifacts via Google Drive
+│   ├── ports.py         WeightsStorage port - the interface registry.py/orchestrator.py/train.py depend on
+│   └── drive.py         GoogleDriveStorage - the WeightsStorage implementation used today
 │
 └── evaluation/           one folder for everything evaluation/performance-related - a model is only ever evaluated one way
     ├── golden_dataset/   Roboflow's `test` split — real bounding-box labels, the one and only copy (gitignored)
@@ -385,11 +386,10 @@ This is a solo project built to demonstrate a hexagonal MLOps architecture end-t
 
 | Shortcut taken here | What it stands in for at scale | Why it's swappable |
 |---|---|---|
-| Weights stored in **Google Drive** ([`drive.py`](model_management/model_registry/drive.py)) | Object storage (S3/GCS/Azure Blob) | It's the one implementation behind the registry's "fetch weights" call — swapping to S3 is a new adapter in `drive.py`, not a domain change |
+| Weights stored in **Google Drive** ([`drive.py`](model_management/model_registry/drive.py), behind the [`WeightsStorage`](model_management/model_registry/ports.py) port) | Object storage (S3/GCS/Azure Blob) | Swapping to S3 is a new `WeightsStorage` implementation, not a change to `registry.py`/`orchestrator.py`/`train.py` |
 | **`registry.json`** as the model registry | A real registry/database (MLflow, SageMaker Model Registry, Postgres) | Fine for a handful of models; `registry.py` is the only place that would need to change if this grew |
 | No CI/CD, image build, or orchestrated deployment (Docker Compose only) | GitHub Actions → container build → registry → Kubernetes/ECS/Cloud Run | See the reference diagrams below for what that looks like on top of this same train → registry → evaluate → promote flow |
 | **Operational monitoring only** — request volume, latency, errors ([`monitoring/`](monitoring/)) | ML monitoring — data/prediction/confidence drift, model degradation over time | Current dashboards answer "is the API up", not "is the model still accurate"; that would mean tracking predictions against the golden dataset over time, not just request logs |
-| **Flask** as the API layer | FastAPI or similar | It's a thin `entrypoints/` adapter — the architecture underneath is the point, not the web framework |
 
 <table>
 <tr>

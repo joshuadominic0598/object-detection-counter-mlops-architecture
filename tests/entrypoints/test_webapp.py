@@ -1,8 +1,8 @@
 import io
-import json
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from counter.entrypoints.webapp import create_app
 
@@ -12,9 +12,8 @@ from counter.entrypoints.webapp import create_app
 @pytest.fixture
 def client():
     app = create_app()
-    app.config["TESTING"] = True
 
-    with app.test_client() as client:
+    with TestClient(app) as client:
         yield client
 
 
@@ -39,19 +38,13 @@ def test_object_detection_counter_mode(client, image_path):
 
     response = client.post(
         "/object-detection",
-        data={
-            "threshold": "0.9",
-            "session_id": "test-session",
-            "counter": "true",
-            "file": (image, "carlot.jpeg"),
-        },
-        content_type="multipart/form-data",
-        buffered=True,
+        data={"threshold": "0.9", "session_id": "test-session", "counter": "true"},
+        files={"file": ("carlot.jpeg", image, "image/jpeg")},
     )
 
     assert response.status_code == 200
 
-    body = json.loads(response.data)
+    body = response.json()
 
     # API contract only
     assert isinstance(body, dict)
@@ -71,19 +64,13 @@ def test_object_detection_list_mode(client, image_path):
 
     response = client.post(
         "/object-detection",
-        data={
-            "threshold": "0.9",
-            "session_id": "test-session",
-            "counter": "false",
-            "file": (image, "carlot.jpeg"),
-        },
-        content_type="multipart/form-data",
-        buffered=True,
+        data={"threshold": "0.9", "session_id": "test-session", "counter": "false"},
+        files={"file": ("carlot.jpeg", image, "image/jpeg")},
     )
 
     assert response.status_code == 200
 
-    predictions = json.loads(response.data)
+    predictions = response.json()
     assert isinstance(predictions, list)
 
     # Validate prediction structure only.
@@ -111,17 +98,12 @@ def test_object_detection_defaults_to_list_mode(client, image_path):
     # `counter` field omitted entirely.
     response = client.post(
         "/object-detection",
-        data={
-            "threshold": "0.9",
-            "session_id": "test-session",
-            "file": (image, "carlot.jpeg"),
-        },
-        content_type="multipart/form-data",
-        buffered=True,
+        data={"threshold": "0.9", "session_id": "test-session"},
+        files={"file": ("carlot.jpeg", image, "image/jpeg")},
     )
 
     assert response.status_code == 200
-    assert isinstance(json.loads(response.data), list)
+    assert isinstance(response.json(), list)
 
 
 # Negative test: missing file
@@ -129,11 +111,7 @@ def test_object_detection_defaults_to_list_mode(client, image_path):
 def test_object_detection_missing_file(client):
     response = client.post(
         "/object-detection",
-        data={
-            "threshold": "0.9",
-            "session_id": "test-session",
-        },
-        content_type="multipart/form-data",
+        data={"threshold": "0.9", "session_id": "test-session"},
     )
 
     assert response.status_code == 400
@@ -147,13 +125,8 @@ def test_object_detection_invalid_threshold(client, image_path):
 
     response = client.post(
         "/object-detection",
-        data={
-            "threshold": "not-a-number",
-            "session_id": "test-session",
-            "file": (image, "carlot.jpeg"),
-        },
-        content_type="multipart/form-data",
-        buffered=True,
+        data={"threshold": "not-a-number", "session_id": "test-session"},
+        files={"file": ("carlot.jpeg", image, "image/jpeg")},
     )
 
     assert response.status_code == 400
@@ -167,12 +140,8 @@ def test_object_detection_missing_session_id(client, image_path):
 
     response = client.post(
         "/object-detection",
-        data={
-            "threshold": "0.9",
-            "file": (image, "carlot.jpeg"),
-        },
-        content_type="multipart/form-data",
-        buffered=True,
+        data={"threshold": "0.9"},
+        files={"file": ("carlot.jpeg", image, "image/jpeg")},
     )
 
     assert response.status_code == 400
@@ -186,14 +155,8 @@ def test_object_detection_invalid_counter_flag(client, image_path):
 
     response = client.post(
         "/object-detection",
-        data={
-            "threshold": "0.9",
-            "session_id": "test-session",
-            "counter": "maybe",
-            "file": (image, "carlot.jpeg"),
-        },
-        content_type="multipart/form-data",
-        buffered=True,
+        data={"threshold": "0.9", "session_id": "test-session", "counter": "maybe"},
+        files={"file": ("carlot.jpeg", image, "image/jpeg")},
     )
 
     assert response.status_code == 400

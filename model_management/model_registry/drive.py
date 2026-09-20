@@ -1,9 +1,9 @@
 """
-Minimal Google Drive client used to back up trained model weights and
-training run artifacts (results.csv, plots, args.yaml - see
-upload_directory()), and to turn them into "anyone with the link" share
-links that get stored in the registry. Performance/evaluation reports are
-never uploaded here - they're kept local only, see
+GoogleDriveStorage: the WeightsStorage (see ports.py) implementation used
+to back up trained model weights and training run artifacts (results.csv,
+plots, args.yaml - see upload_directory()), and to turn them into "anyone
+with the link" share links that get stored in the registry. Performance/
+evaluation reports are never uploaded here - they're kept local only, see
 model_management/evaluation/evaluator.py.
 
 Requires GOOGLE_DRIVE_CLIENT_ID / GOOGLE_DRIVE_CLIENT_SECRET (an OAuth
@@ -23,6 +23,8 @@ created itself - not the rest of the user's Drive.
 
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -31,6 +33,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+
+from model_management.model_registry.ports import WeightsStorage
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -81,73 +85,97 @@ def _escape_query_value(value):
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
-def get_or_create_folder(name, parent_id=None):
-    """Return the id of a Drive folder named `name` under `parent_id`,
-    creating it if it doesn't already exist."""
+class GoogleDriveStorage(WeightsStorage):
+    """WeightsStorage backed by Google Drive (drive.file scope)."""
 
-    parent_id = parent_id or os.getenv("GOOGLE_DRIVE_FOLDER_ID") or "root"
-    service = build("drive", "v3", credentials=_credentials())
+    def __init__(self):
+        self._service = None
 
-    query = (
-        f"name = '{_escape_query_value(name)}' "
-        f"and '{parent_id}' in parents "
-        "and mimeType = 'application/vnd.google-apps.folder' "
-        "and trashed = false"
-    )
+    def _client(self):
+        if self._service is None:
+            self._service = build("drive", "v3", credentials=_credentials())
 
-    results = service.files().list(q=query, fields="files(id)").execute()
-    matches = results.get("files", [])
+        return self._service
 
-    if matches:
-        return matches[0]["id"]
+    def get_or_create_folder(self, name, parent_id=None):
+        parent_id = parent_id or os.getenv("GOOGLE_DRIVE_FOLDER_ID") or "root"
+        service = self._client()
 
-    metadata = {
-        "name": name,
-        "mimeType": "application/vnd.google-apps.folder",
-        "parents": [parent_id],
-    }
+        query = (
+            f"name = '{_escape_query_value(name)}' "
+            f"and '{parent_id}' in parents "
+            "and mimeType = 'application/vnd.google-apps.folder' "
+            "and trashed = false"
+        )
 
-    folder = service.files().create(body=metadata, fields="id").execute()
+        results = service.files().list(q=query, fields="files(id)").execute()
+        matches = results.get("files", [])
 
-    return folder["id"]
+        if matches:
+            return matches[0]["id"]
+
+        metadata = {
+            "name": name,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [parent_id],
+        }
+
+        folder = service.files().create(body=metadata, fields="id").execute()
+
+        return folder["id"]
+
+    def upload_file(self, local_path, filename=None, folder_id=None):
+        if not folder_id:
+            raise RuntimeError("upload_file() requires a folder_id - see get_or_create_folder().")
+
+        local_path = Path(local_path)
+        service = self._client()
+
+        metadata = {"name": filename or local_path.name, "parents": [folder_id]}
+        media = MediaFileUpload(str(local_path), resumable=True)
+
+        file = service.files().create(body=metadata, media_body=media, fields="id").execute()
+        file_id = file["id"]
+
+        service.permissions().create(
+            fileId=file_id,
+            body={"role": "reader", "type": "anyone"},
+        ).execute()
+
+        file = service.files().get(fileId=file_id, fields="webViewLink").execute()
+
+        return file_id, file["webViewLink"]
+
+    def upload_directory(self, local_dir, filename=None, folder_id=None):
+        """Zip `local_dir` (e.g. a training run directory - weights, results.csv,
+        plots) and upload it as a single archive. Only model weights and this
+        kind of training artifact belong here; performance/evaluation reports
+        are kept local (see model_management/evaluation/evaluator.py)."""
+
+        local_dir = Path(local_dir)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            archive_base = Path(tmp_dir) / (filename or local_dir.name)
+            archive_path = Path(shutil.make_archive(str(archive_base), "zip", root_dir=local_dir))
+
+            return self.upload_file(archive_path, filename=f"{archive_base.name}.zip", folder_id=folder_id)
+
+    def download(self, file_id, destination):
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        subprocess.run(
+            [sys.executable, "-m", "gdown", file_id, "-O", str(destination)],
+            check=True,
+        )
+
+        if not destination.exists() or destination.stat().st_size == 0:
+            destination.unlink(missing_ok=True)
+            raise RuntimeError(f"Download failed for '{file_id}': downloaded file is empty.")
 
 
-def upload_file(local_path, filename=None, folder_id=None):
-    """Upload a file to Drive, share it with anyone with the link, and
-    return (file_id, web_view_link)."""
+def get_storage() -> WeightsStorage:
+    """The active WeightsStorage backend - swap this to change where model
+    weights live (e.g. an S3Storage implementing the same port)."""
 
-    if not folder_id:
-        raise RuntimeError("upload_file() requires a folder_id - see get_or_create_folder().")
-
-    local_path = Path(local_path)
-    service = build("drive", "v3", credentials=_credentials())
-
-    metadata = {"name": filename or local_path.name, "parents": [folder_id]}
-    media = MediaFileUpload(str(local_path), resumable=True)
-
-    file = service.files().create(body=metadata, media_body=media, fields="id").execute()
-    file_id = file["id"]
-
-    service.permissions().create(
-        fileId=file_id,
-        body={"role": "reader", "type": "anyone"},
-    ).execute()
-
-    file = service.files().get(fileId=file_id, fields="webViewLink").execute()
-
-    return file_id, file["webViewLink"]
-
-
-def upload_directory(local_dir, filename=None, folder_id=None):
-    """Zip `local_dir` (e.g. a training run directory - weights, results.csv,
-    plots) and upload it as a single archive. Only model weights and this
-    kind of training artifact belong on Drive; performance/evaluation
-    reports are kept local (see model_management/evaluation/evaluator.py)."""
-
-    local_dir = Path(local_dir)
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        archive_base = Path(tmp_dir) / (filename or local_dir.name)
-        archive_path = Path(shutil.make_archive(str(archive_base), "zip", root_dir=local_dir))
-
-        return upload_file(archive_path, filename=f"{archive_base.name}.zip", folder_id=folder_id)
+    return GoogleDriveStorage()

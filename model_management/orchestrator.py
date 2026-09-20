@@ -73,7 +73,7 @@ from model_management.config import (
 from model_management.evaluation.dashboard.compare_models import run_comparison
 from model_management.evaluation.dataset import load_dataset_version
 from model_management.evaluation.evaluator import run_for_model
-from model_management.model_registry.drive import get_or_create_folder, upload_directory, upload_file
+from model_management.model_registry.drive import get_storage
 from model_management.model_registry.registry import (
     add_model,
     get_active_model_name,
@@ -165,13 +165,14 @@ def main():
         drive_url = f"file://{local_model_path}"
         metrics_url = None
     else:
-        parent_folder_id = get_or_create_folder("Model-training-ObjectCounter")
-        run_folder_id = get_or_create_folder(run_name, parent_id=parent_folder_id)
+        storage = get_storage()
+        parent_folder_id = storage.get_or_create_folder("Model-training-ObjectCounter")
+        run_folder_id = storage.get_or_create_folder(run_name, parent_id=parent_folder_id)
 
-        _, drive_url = upload_file(local_model_path, folder_id=run_folder_id)
+        _, drive_url = storage.upload_file(local_model_path, folder_id=run_folder_id)
         print(f"Model weights uploaded: {drive_url}")
 
-        _, metrics_url = upload_directory(training_result.run_dir, folder_id=run_folder_id)
+        _, metrics_url = storage.upload_directory(training_result.run_dir, folder_id=run_folder_id)
         print(f"Training run artifacts uploaded: {metrics_url}")
 
     add_model(args.model_name, model_file, drive_url, metrics_url=metrics_url, use_case=args.use_case)
