@@ -1,0 +1,17 @@
+{
+  "active_model": "yolo26_v2",
+  "models": {
+    "yolo26": {
+      "file": "yolo26.pt",
+      "use_case": "carpark",
+      "drive_url": "https://drive.google.com/file/d/1-50eonRlF7Lo-yKoWhvO4-XT1332JzU0/view?usp=sharing",
+      "drive_file_id": "1-50eonRlF7Lo-yKoWhvO4-XT1332JzU0"
+    },
+    "yolo26_v2": {
+      "file": "yolo26_v2.pt",
+      "use_case": "carpark",
+      "drive_url": "https://drive.google.com/file/d/1xaRFy-R0niJUiWIqOIQsolGs-xo0leL4/view?usp=sharing",
+      "drive_file_id": "1xaRFy-R0niJUiWIqOIQsolGs-xo0leL4"
+    }
+  }
+}

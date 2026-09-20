@@ -1,0 +1,32 @@
+# IDE and local editor specific files
+.idea/
+.vscode/
+.pytest_cache/
+.ipynb_checkpoints/
+.DS_Store
+
+.venv/
+spikes/
+
+*.pyc
+__pycache__/
+
+.env
+
+# Model weight files 
+*.pt
+
+# Temporary files and directories
+tmp/models/
+tmp/debug/
+tmp/dashboard/
+tmp/gdrive_token.json
+
+# Results and output directories
+results/
+
+# Training and evaluation data directories
+model_management/training/yolo_training/training_data/
+model_management/evaluation/golden_dataset/eval_data.yaml
+model_management/evaluation/golden_dataset/test/labels.cache
+model_management/evaluation/golden_dataset/data.yaml
