@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MONGO_HOST: localhost
+      MONGO_PORT: 27017
+      MONGO_DB: counter
+      # Use a small, publicly auto-downloaded COCO-pretrained model instead of the
+      # Google Drive-hosted registry weights, which need interactive OAuth consent
+      # and aren't available in CI. Tests only check the API contract/shape, not
+      # specific classes, so this is a safe stand-in for exercising the pipeline.
+      MODEL_PATH: yolov8n.pt
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Create virtual environment
+        run: python -m venv .venv
+
+      - name: Install dependencies
+        run: .venv/bin/python -m pip install -r requirements.txt
+
+      - name: Run tests
+        run: make test

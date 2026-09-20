@@ -2,6 +2,7 @@
 
 **A production-oriented object detection and counting API that detects objects with bounding boxes, filters predictions by configurable confidence thresholds, and optionally tracks cumulative counts. Built with Hexagonal Architecture, keeping the core detection and counting logic independent from frameworks infrastructure, and external services - Allows for safe swaps.**
 
+[![CI](https://github.com/joshuadominic0598/object-detection-counter-mlops-architecture/actions/workflows/app-tests.yml/badge.svg)](https://github.com/joshuadominic0598/object-detection-counter-mlops-architecture/actions/workflows/app-tests.yml)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Ultralytics](https://img.shields.io/badge/YOLO-Ultralytics-00FFDE.svg?logo=yolo&logoColor=white)](https://www.ultralytics.com/)
@@ -378,6 +379,13 @@ Run it all during setup:
 make test
 ```
 
+### CI
+
+[`.github/workflows/app-tests.yml`](.github/workflows/app-tests.yml) runs `make test` on every push/PR via GitHub Actions — plain `ubuntu-latest`, no self-hosted runners or cloud infra. Two things the suite needs are stood up cheaply instead of used for real:
+
+* **MongoDB** — a `mongo:7` [service container](https://docs.github.com/en/actions/using-containerized-services/about-service-containers), same as `docker run mongo` locally.
+* **A model** — `MODEL_PATH` is set to `yolov8n.pt`, a small COCO-pretrained model [`ultralytics`](https://www.ultralytics.com/) auto-downloads on first use. This swaps in for the registry's Google Drive-hosted weights, which need one-time interactive OAuth consent and can't be fetched non-interactively in CI. Tests only assert the API's response shape/contract, not specific classes, so the swap doesn't weaken what's being checked.
+
 ---
 
 ## 🧭 Scope & Design Trade-offs
@@ -388,7 +396,7 @@ This is a solo project built to demonstrate a hexagonal MLOps architecture end-t
 |---|---|---|
 | Weights stored in **Google Drive** ([`drive.py`](model_management/model_registry/drive.py), behind the [`WeightsStorage`](model_management/model_registry/ports.py) port) | Object storage (S3/GCS/Azure Blob) | Swapping to S3 is a new `WeightsStorage` implementation, not a change to `registry.py`/`orchestrator.py`/`train.py` |
 | **`registry.json`** as the model registry | A real registry/database (MLflow, SageMaker Model Registry, Postgres) | Fine for a handful of models; `registry.py` is the only place that would need to change if this grew |
-| No CI/CD, image build, or orchestrated deployment (Docker Compose only) | GitHub Actions → container build → registry → Kubernetes/ECS/Cloud Run | See the reference diagrams below for what that looks like on top of this same train → registry → evaluate → promote flow |
+| CI runs tests only (see [CI](#ci)) — no image build or orchestrated deployment (Docker Compose only) | GitHub Actions → container build → registry → Kubernetes/ECS/Cloud Run | See the reference diagrams below for what that looks like on top of this same train → registry → evaluate → promote flow |
 | **Operational monitoring only** — request volume, latency, errors ([`monitoring/`](monitoring/)) | ML monitoring — data/prediction/confidence drift, model degradation over time | Current dashboards answer "is the API up", not "is the model still accurate"; that would mean tracking predictions against the golden dataset over time, not just request logs |
 
 <table>
