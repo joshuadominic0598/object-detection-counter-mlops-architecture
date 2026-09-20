@@ -1,6 +1,6 @@
 # Object Detection & Counter MLOps
 
-**Production-ready object detection and counting API that detects objects with bounding boxes, filters predictions by configurable confidence thresholds, and optionally tracks cumulative counts. Built with Hexagonal Architecture, keeping the core detection and counting logic independent from frameworks infrastructure, and external services - Allows for safe swaps.**
+**A production-oriented object detection and counting API that detects objects with bounding boxes, filters predictions by configurable confidence thresholds, and optionally tracks cumulative counts. Built with Hexagonal Architecture, keeping the core detection and counting logic independent from frameworks infrastructure, and external services - Allows for safe swaps.**
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.1-000000.svg?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
@@ -376,6 +376,27 @@ Run it all during setup:
 ```bash
 make test
 ```
+
+---
+
+## 🧭 Scope & Design Trade-offs
+
+This is a solo project built to demonstrate a hexagonal MLOps architecture end-to-end — a **production-oriented architecture demonstration**, not production infrastructure. A few shortcuts were made because it's a personal project, and each one is a swappable adapter or config choice rather than something baked into the domain:
+
+| Shortcut taken here | What it stands in for at scale | Why it's swappable |
+|---|---|---|
+| Weights stored in **Google Drive** ([`drive.py`](model_management/model_registry/drive.py)) | Object storage (S3/GCS/Azure Blob) | It's the one implementation behind the registry's "fetch weights" call — swapping to S3 is a new adapter in `drive.py`, not a domain change |
+| **`registry.json`** as the model registry | A real registry/database (MLflow, SageMaker Model Registry, Postgres) | Fine for a handful of models; `registry.py` is the only place that would need to change if this grew |
+| No CI/CD, image build, or orchestrated deployment (Docker Compose only) | GitHub Actions → container build → registry → Kubernetes/ECS/Cloud Run | See the reference diagrams below for what that looks like on top of this same train → registry → evaluate → promote flow |
+| **Operational monitoring only** — request volume, latency, errors ([`monitoring/`](monitoring/)) | ML monitoring — data/prediction/confidence drift, model degradation over time | Current dashboards answer "is the API up", not "is the model still accurate"; that would mean tracking predictions against the golden dataset over time, not just request logs |
+| **Flask** as the API layer | FastAPI or similar | It's a thin `entrypoints/` adapter — the architecture underneath is the point, not the web framework |
+
+<table>
+<tr>
+<td><img src="resources/readme/awsmodelflow.jpeg" width="450"><br><sub>Reference: an AWS SageMaker CI/CD pipeline</sub></td>
+<td><img src="resources/readme/workflow.jpeg" width="450"><br><sub>Reference: generic MLOps maturity flow (repo → orchestrator → registry → online monitoring)</sub></td>
+</tr>
+</table>
 
 ---
 
